@@ -1,0 +1,220 @@
+// Dayflow HRMS - Streamlined Schema (Based on PDF Requirements)
+// Copy this file to: prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  EMPLOYEE
+  HR
+  ADMIN
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  LEAVE
+}
+
+enum LeaveType {
+  PAID
+  SICK
+  UNPAID
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DocumentType {
+  RESUME
+  ID_PROOF
+  CERTIFICATE
+  OTHER
+}
+
+model User {
+  id                String    @id @default(cuid())
+  employeeId        String    @unique  // Auto-generated: OT-2022-0001
+  email             String    @unique
+  password          String
+  role              Role      @default(EMPLOYEE)
+  emailVerified     Boolean   @default(false)
+  verificationToken String?
+  isActive          Boolean   @default(true)
+  lastLogin         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  employee        Employee?
+  createdLeaves   Leave[]   @relation("LeaveCreator")
+  processedLeaves Leave[]   @relation("LeaveProcessor")
+  activities      ActivityLog[]
+  
+  @@index([email])
+  @@index([employeeId])
+  @@map("users")
+}
+
+// Employee Profile (Requirements: 3.3)
+model Employee {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Personal Details
+  firstName String
+  lastName  String
+  phone     String?
+  address   String?
+  
+  // Job Details
+  jobTitle     String
+  department   String
+  joiningDate  DateTime   @db.Date
+  
+  // Salary Structure (Requirements: 3.6)
+  baseSalary   Decimal?   @db.Decimal(10, 2)
+  allowances   Decimal?   @db.Decimal(10, 2)
+  deductions   Decimal?   @db.Decimal(10, 2)
+  netSalary    Decimal?   @db.Decimal(10, 2)
+  
+  // Profile Picture
+  profilePicture String?
+  
+  // Status
+  employmentStatus EmploymentStatus @default(ACTIVE)
+  
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  
+  // Relations
+  attendance     Attendance[]
+  leaves         Leave[]
+  documents      Document[]
+  notifications  Notification[]
+  
+  @@index([userId])
+  @@index([department])
+  @@map("employees")
+}
+
+// Attendance Tracking (Requirements: 3.4)
+model Attendance {
+  id         String           @id @default(cuid())
+  employeeId String
+  employee   Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  date       DateTime         @db.Date
+  checkIn    DateTime?
+  checkOut   DateTime?
+  status     AttendanceStatus @default(PRESENT)
+  remarks    String?
+  
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  
+  @@unique([employeeId, date])
+  @@index([employeeId, date])
+  @@index([date])
+  @@map("attendance")
+}
+
+// Leave Management (Requirements: 3.5)
+model Leave {
+  id          String      @id @default(cuid())
+  employeeId  String
+  employee    Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  leaveType   LeaveType
+  startDate   DateTime    @db.Date
+  endDate     DateTime    @db.Date
+  remarks     String?
+  status      LeaveStatus @default(PENDING)
+  
+  // Workflow (Requirements: 3.5.2)
+  appliedById String
+  appliedBy   User        @relation("LeaveCreator", fields: [appliedById], references: [id])
+  appliedAt   DateTime    @default(now())
+  
+  processedById    String?
+  processedBy      User?      @relation("LeaveProcessor", fields: [processedById], references: [id])
+  processedAt      DateTime?
+  processorComment String?
+  
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  @@index([employeeId])
+  @@index([status])
+  @@map("leaves")
+}
+
+// Document Management (Requirements: 3.3.1)
+model Document {
+  id           String       @id @default(cuid())
+  employeeId   String
+  employee     Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  title        String
+  documentType DocumentType
+  fileUrl      String
+  fileSize     Int
+  
+  uploadedAt   DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  
+  @@index([employeeId])
+  @@map("documents")
+}
+
+// Notification System (Future Enhancement: Email & notification alerts)
+model Notification {
+  id         String   @id @default(cuid())
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  
+  title      String
+  message    String
+  type       String   // Leave, Attendance, Payroll, System
+  isRead     Boolean  @default(false)
+  link       String?
+  
+  createdAt  DateTime @default(now())
+  
+  @@index([employeeId, isRead])
+  @@map("notifications")
+}
+
+// Activity Log / Audit Trail
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  action      String   // LOGIN, LOGOUT, LEAVE_APPLIED, etc.
+  description String
+  metadata    Json?
+  
+  ipAddress   String?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
